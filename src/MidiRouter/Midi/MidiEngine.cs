@@ -1,0 +1,438 @@
+using MidiRouter.Routing;
+using Windows.Devices.Enumeration;
+using Windows.Devices.Midi;
+using Windows.Storage.Streams;
+
+namespace MidiRouter.Midi;
+
+/// <summary>
+/// Watches MIDI devices, keeps their ports open and forwards messages along the routes.
+///
+/// Reconnecting is the main job:
+/// - A DeviceWatcher per direction reports plug and unplug. Unplug closes the port; plug opens it
+///   again under the same name, so the routes (stored by name) carry straight on.
+/// - A health timer retries ports that failed to open and restarts a watcher that died.
+/// - After sleep, ports can look open but pass nothing, so on resume everything is closed and
+///   reopened from scratch.
+/// </summary>
+public sealed class MidiEngine : IDisposable
+{
+    private static readonly TimeSpan HealthInterval = TimeSpan.FromSeconds(3);
+
+    /// <summary>A health tick this late means the PC was asleep.</summary>
+    private static readonly TimeSpan SleepGap = TimeSpan.FromSeconds(20);
+
+    private readonly SemaphoreSlim _gate = new(1, 1);
+    private readonly Dictionary<string, MidiEndpoint> _inputs = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, MidiEndpoint> _outputs = new(StringComparer.Ordinal);
+    private readonly HashSet<Route> _routes = [];
+
+    /// <summary>Input name to output endpoints. Replaced whole on change; read on the MIDI thread.</summary>
+    private volatile Dictionary<string, MidiEndpoint[]> _routeMap = new(StringComparer.Ordinal);
+
+    private DeviceWatcher? _inWatcher;
+    private DeviceWatcher? _outWatcher;
+    private Timer? _healthTimer;
+    private DateTime _lastHealthTick = DateTime.UtcNow;
+    private bool _disposed;
+
+    /// <summary>Raised (on a background thread) when a device appears, goes or changes state.</summary>
+    public event Action? EndpointsChanged;
+
+    public void Start(IEnumerable<Route> savedRoutes)
+    {
+        foreach (var route in savedRoutes)
+        {
+            GetOrAdd(PortKind.Input, route.From);
+            GetOrAdd(PortKind.Output, route.To);
+            _routes.Add(route);
+        }
+        RebuildRouteMap();
+        Log.Info($"Started with {_routes.Count} saved route(s).");
+
+        StartWatchers();
+        _lastHealthTick = DateTime.UtcNow;
+        _healthTimer = new Timer(_ => _ = HealthCheckAsync(), null, HealthInterval, HealthInterval);
+    }
+
+    public IReadOnlyList<MidiEndpoint> Inputs => Snapshot(_inputs);
+
+    public IReadOnlyList<MidiEndpoint> Outputs => Snapshot(_outputs);
+
+    public bool IsRouted(string from, string to)
+    {
+        lock (_routes) return _routes.Contains(new Route(from, to));
+    }
+
+    public void SetRoute(string from, string to, bool on)
+    {
+        var route = new Route(from, to);
+        bool changed;
+        lock (_routes) changed = on ? _routes.Add(route) : _routes.Remove(route);
+        if (!changed) return;
+
+        Log.Info($"Route {(on ? "on" : "off")}: {from} -> {to}");
+        RebuildRouteMap();
+        List<Route> copy;
+        lock (_routes) copy = [.. _routes];
+        RouteStore.Save(copy);
+    }
+
+    /// <summary>Closes every port and finds all devices again. Used after sleep and by the Reconnect button.</summary>
+    public async Task ReconnectAllAsync(string reason)
+    {
+        Log.Info($"Reconnecting all ports ({reason}).");
+        await _gate.WaitAsync();
+        try
+        {
+            StopWatchers();
+            foreach (var endpoint in AllEndpoints())
+            {
+                ClosePort(endpoint);
+                endpoint.DeviceId = null;
+            }
+        }
+        finally
+        {
+            _gate.Release();
+        }
+        RaiseChanged();
+        StartWatchers();
+    }
+
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        _healthTimer?.Dispose();
+        StopWatchers();
+        _gate.Wait();
+        try
+        {
+            foreach (var endpoint in AllEndpoints()) ClosePort(endpoint);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    // ---- Watchers -------------------------------------------------------------------------
+
+    private void StartWatchers()
+    {
+        _inWatcher = CreateWatcher(PortKind.Input, MidiInPort.GetDeviceSelector());
+        _outWatcher = CreateWatcher(PortKind.Output, MidiOutPort.GetDeviceSelector());
+    }
+
+    private DeviceWatcher CreateWatcher(PortKind kind, string selector)
+    {
+        var watcher = DeviceInformation.CreateWatcher(selector);
+        watcher.Added += (w, info) => _ = OnDeviceAddedAsync(w, kind, info.Id, info.Name);
+        watcher.Removed += (w, update) => _ = OnDeviceRemovedAsync(w, kind, update.Id);
+        watcher.Updated += (_, _) => { };
+        watcher.EnumerationCompleted += (w, _) =>
+        {
+            if (IsCurrent(w)) Log.Info($"{kind} device list loaded.");
+        };
+        watcher.Stopped += (w, _) =>
+        {
+            if (IsCurrent(w)) Log.Info($"{kind} watcher stopped ({w.Status}); the health check will restart it.");
+        };
+        watcher.Start();
+        return watcher;
+    }
+
+    private void StopWatchers()
+    {
+        foreach (var watcher in new[] { _inWatcher, _outWatcher })
+        {
+            if (watcher is null) continue;
+            try
+            {
+                if (watcher.Status is DeviceWatcherStatus.Started or DeviceWatcherStatus.EnumerationCompleted)
+                {
+                    watcher.Stop();
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Info($"Watcher stop failed: {ex.Message}");
+            }
+        }
+        _inWatcher = null;
+        _outWatcher = null;
+    }
+
+    /// <summary>Events from a watcher that has since been replaced are ignored.</summary>
+    private bool IsCurrent(DeviceWatcher watcher) =>
+        ReferenceEquals(watcher, _inWatcher) || ReferenceEquals(watcher, _outWatcher);
+
+    private async Task OnDeviceAddedAsync(DeviceWatcher watcher, PortKind kind, string id, string name)
+    {
+        await _gate.WaitAsync();
+        try
+        {
+            if (!IsCurrent(watcher) || _disposed) return;
+            var table = Table(kind);
+            MidiEndpoint endpoint;
+            lock (table)
+            {
+                if (table.Values.Any(e => e.DeviceId == id)) return;
+                endpoint = GetOrAdd(kind, UniqueName(table, name, id));
+                endpoint.DeviceId = id;
+            }
+            Log.Info($"Found {endpoint}.");
+            await OpenPortAsync(endpoint);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+        RaiseChanged();
+    }
+
+    private async Task OnDeviceRemovedAsync(DeviceWatcher watcher, PortKind kind, string id)
+    {
+        await _gate.WaitAsync();
+        try
+        {
+            if (!IsCurrent(watcher)) return;
+            var table = Table(kind);
+            MidiEndpoint? endpoint;
+            lock (table) endpoint = table.Values.FirstOrDefault(e => e.DeviceId == id);
+            if (endpoint is null) return;
+            Log.Info($"Lost {endpoint} (unplugged or switched off).");
+            ClosePort(endpoint);
+            endpoint.DeviceId = null;
+        }
+        finally
+        {
+            _gate.Release();
+        }
+        RaiseChanged();
+    }
+
+    /// <summary>
+    /// Two devices with the same name get "Name #2" so each has its own row. The first one keeps
+    /// the plain name, so a single device's routes always match. Call with the table locked.
+    /// </summary>
+    private static string UniqueName(Dictionary<string, MidiEndpoint> table, string name, string id)
+    {
+        if (string.IsNullOrWhiteSpace(name)) name = "Unnamed MIDI device";
+        var candidate = name;
+        for (var n = 2; table.TryGetValue(candidate, out var existing) && existing.DeviceId is not null && existing.DeviceId != id; n++)
+        {
+            candidate = $"{name} #{n}";
+        }
+        return candidate;
+    }
+
+    // ---- Ports ----------------------------------------------------------------------------
+
+    private async Task OpenPortAsync(MidiEndpoint endpoint)
+    {
+        if (endpoint.IsOpen || endpoint.DeviceId is null) return;
+        var id = endpoint.DeviceId;
+        try
+        {
+            if (endpoint.Kind == PortKind.Input)
+            {
+                var port = await MidiInPort.FromIdAsync(id);
+                if (port is null)
+                {
+                    Log.Info($"Could not open {endpoint} yet; will retry.");
+                    return;
+                }
+                port.MessageReceived += (sender, args) => OnMessage(endpoint, sender, args.Message);
+                endpoint.InPort = port;
+            }
+            else
+            {
+                var port = await MidiOutPort.FromIdAsync(id);
+                if (port is null)
+                {
+                    Log.Info($"Could not open {endpoint} yet; will retry.");
+                    return;
+                }
+                endpoint.OutPort = port;
+            }
+            Log.Info($"Opened {endpoint}.");
+        }
+        catch (Exception ex)
+        {
+            Log.Info($"Error opening {endpoint}: {ex.Message}; will retry.");
+        }
+    }
+
+    private static void ClosePort(MidiEndpoint endpoint)
+    {
+        try
+        {
+            endpoint.InPort?.Dispose();
+            lock (endpoint.SendLock) endpoint.OutPort?.Dispose();
+        }
+        catch (Exception ex)
+        {
+            Log.Info($"Error closing {endpoint}: {ex.Message}");
+        }
+        endpoint.InPort = null;
+        lock (endpoint.SendLock) endpoint.OutPort = null;
+    }
+
+    // ---- Routing (runs on the MIDI callback thread) ---------------------------------------
+
+    private void OnMessage(MidiEndpoint source, MidiInPort sender, IMidiMessage message)
+    {
+        if (!ReferenceEquals(sender, source.InPort)) return;
+        var visible = ShowsActivity(message.Type);
+        if (visible)
+        {
+            source.MarkActivity();
+            source.CountMessage();
+        }
+        if (!_routeMap.TryGetValue(source.Name, out var targets)) return;
+
+        IBuffer data = message.RawData;
+        foreach (var target in targets)
+        {
+            lock (target.SendLock)
+            {
+                var port = target.OutPort;
+                if (port is null) continue;
+                try
+                {
+                    port.SendBuffer(data);
+                }
+                catch (Exception ex)
+                {
+                    // A dead port; the watcher or health check will bring it back.
+                    Log.Info($"Send to {target} failed: {ex.Message}");
+                    continue;
+                }
+            }
+            if (visible)
+            {
+                target.MarkActivity();
+                target.CountMessage();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Only channel messages (notes, CC, pitch bend and so on) light the lamps. Clock, active
+    /// sensing and SysEx can stream all the time (the FM-1 sends SysEx constantly), so they would
+    /// keep the lamp lit and hide whether notes are getting through. They are still forwarded.
+    /// </summary>
+    private static bool ShowsActivity(MidiMessageType type) =>
+        type is MidiMessageType.NoteOff or MidiMessageType.NoteOn or MidiMessageType.PolyphonicKeyPressure
+            or MidiMessageType.ControlChange or MidiMessageType.ProgramChange or MidiMessageType.ChannelPressure
+            or MidiMessageType.PitchBendChange;
+
+    private void RebuildRouteMap()
+    {
+        List<Route> routes;
+        lock (_routes) routes = [.. _routes];
+        var map = new Dictionary<string, MidiEndpoint[]>(StringComparer.Ordinal);
+        foreach (var group in routes.GroupBy(r => r.From))
+        {
+            GetOrAdd(PortKind.Input, group.Key);
+            map[group.Key] = group.Select(r => GetOrAdd(PortKind.Output, r.To)).ToArray();
+        }
+        _routeMap = map;
+    }
+
+    // ---- Health check ---------------------------------------------------------------------
+
+    private async Task HealthCheckAsync()
+    {
+        if (_disposed) return;
+        var now = DateTime.UtcNow;
+        var gap = now - _lastHealthTick;
+        _lastHealthTick = now;
+        if (gap > SleepGap)
+        {
+            await ReconnectAllAsync($"woke up after {gap.TotalSeconds:0}s");
+            return;
+        }
+
+        LogTraffic();
+        if (!await _gate.WaitAsync(0)) return;
+        var changed = false;
+        try
+        {
+            if (WatcherDead(_inWatcher) || WatcherDead(_outWatcher))
+            {
+                Log.Info("A device watcher died; restarting.");
+                StopWatchers();
+                foreach (var endpoint in AllEndpoints())
+                {
+                    ClosePort(endpoint);
+                    endpoint.DeviceId = null;
+                }
+                StartWatchers();
+                changed = true;
+            }
+            else
+            {
+                foreach (var endpoint in AllEndpoints().Where(e => e.IsPresent && !e.IsOpen))
+                {
+                    await OpenPortAsync(endpoint);
+                    changed |= endpoint.IsOpen;
+                }
+            }
+        }
+        finally
+        {
+            _gate.Release();
+        }
+        if (changed) RaiseChanged();
+    }
+
+    /// <summary>One log line per health tick while notes are flowing, so a silent route shows up in the log.</summary>
+    private void LogTraffic()
+    {
+        var parts = AllEndpoints()
+            .Select(e => (e, n: e.TakeNewMessages()))
+            .Where(x => x.n > 0)
+            .Select(x => $"{x.e.Name} {(x.e.Kind == PortKind.Input ? "in" : "out")} {x.n}")
+            .ToList();
+        if (parts.Count > 0) Log.Info("Traffic: " + string.Join(", ", parts));
+    }
+
+    private static bool WatcherDead(DeviceWatcher? watcher) =>
+        watcher is null || watcher.Status is DeviceWatcherStatus.Aborted or DeviceWatcherStatus.Stopped;
+
+    // ---- Helpers --------------------------------------------------------------------------
+
+    private Dictionary<string, MidiEndpoint> Table(PortKind kind) => kind == PortKind.Input ? _inputs : _outputs;
+
+    private MidiEndpoint GetOrAdd(PortKind kind, string name)
+    {
+        var table = Table(kind);
+        lock (table)
+        {
+            if (!table.TryGetValue(name, out var endpoint))
+            {
+                endpoint = new MidiEndpoint(kind, name);
+                table[name] = endpoint;
+            }
+            return endpoint;
+        }
+    }
+
+    private List<MidiEndpoint> AllEndpoints()
+    {
+        var all = new List<MidiEndpoint>();
+        lock (_inputs) all.AddRange(_inputs.Values);
+        lock (_outputs) all.AddRange(_outputs.Values);
+        return all;
+    }
+
+    private static List<MidiEndpoint> Snapshot(Dictionary<string, MidiEndpoint> table)
+    {
+        lock (table) return [.. table.Values.OrderBy(e => e.Name, StringComparer.CurrentCultureIgnoreCase)];
+    }
+
+    private void RaiseChanged() => EndpointsChanged?.Invoke();
+}
