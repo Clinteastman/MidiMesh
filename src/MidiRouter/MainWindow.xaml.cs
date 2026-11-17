@@ -7,7 +7,9 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
 using Microsoft.UI.Xaml.Shapes;
+using Microsoft.UI.Xaml.Controls.Primitives;
 using MidiRouter.Midi;
+using MidiRouter.Routing;
 using Windows.Foundation;
 using Windows.Graphics;
 using Windows.UI;
@@ -25,6 +27,7 @@ public sealed partial class MainWindow : Window
     private const double LightSize = 10;
     private const long LightHoldMs = 150;
     private const double MinWindowWidth = 560;
+    private const double MinWindowHeight = 440;
 
     private readonly MidiEngine _engine;
     private readonly DispatcherQueueTimer _lightTimer;
@@ -257,12 +260,31 @@ public sealed partial class MainWindow : Window
                 };
                 ToolTipService.SetToolTip(box, $"{input.Name} → {output.Name}");
                 AutomationProperties.SetName(box, $"Route {input.Name} to {output.Name}");
-                box.Checked += (_, _) => OnRouteToggled(input.Name, output.Name, true);
-                box.Unchecked += (_, _) => OnRouteToggled(input.Name, output.Name, false);
                 // Centre the 20px box in the cell; CheckBox reserves room for a label otherwise.
-                var cell = new Grid();
-                cell.Children.Add(box);
                 box.Margin = new Thickness(8, 0, 0, 0);
+                var options = OptionsButton(input.Name, output.Name);
+                options.Visibility = box.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
+                box.Checked += (_, _) =>
+                {
+                    OnRouteToggled(input.Name, output.Name, true);
+                    options.Visibility = Visibility.Visible;
+                    StyleOptionsButton(options, RouteOptions.Default);
+                };
+                box.Unchecked += (_, _) =>
+                {
+                    OnRouteToggled(input.Name, output.Name, false);
+                    options.Visibility = Visibility.Collapsed;
+                };
+
+                // Box in the middle column, its options button just to the right.
+                var cell = new Grid();
+                cell.ColumnDefinitions.Add(new ColumnDefinition());
+                cell.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                cell.ColumnDefinitions.Add(new ColumnDefinition());
+                Grid.SetColumn(box, 1);
+                Grid.SetColumn(options, 2);
+                cell.Children.Add(box);
+                cell.Children.Add(options);
                 Grid.SetRow(cell, r + 1);
                 Grid.SetColumn(cell, c + 1);
                 Matrix.Children.Add(cell);
@@ -270,6 +292,166 @@ public sealed partial class MainWindow : Window
         }
         UpdateLights();
         FitToContent(centre: false);
+    }
+
+    // ---- Route options ---------------------------------------------------------------------
+
+    private static readonly (MessageKind Kind, string Label, string? Hint)[] FilterChoices =
+    [
+        (MessageKind.Notes, "Notes", "Untick to use a controller for its knobs only"),
+        (MessageKind.ControlChange, "CC (knobs)", "Control change: knobs, mod wheel, sustain pedal"),
+        (MessageKind.PitchBend, "Pitch bend", null),
+        (MessageKind.Aftertouch, "Aftertouch", "Channel and polyphonic pressure"),
+        (MessageKind.ProgramChange, "Program change", null),
+        (MessageKind.Clock, "Clock, start/stop", "Timing clock, start, stop, continue, song position, time code"),
+        (MessageKind.SysEx, "SysEx", "System exclusive: device-specific data"),
+    ];
+
+    /// <summary>The small filter button beside a ticked box. Green when the route has filters or a channel set.</summary>
+    private Button OptionsButton(string from, string to)
+    {
+        var button = new Button
+        {
+            Content = new FontIcon { Glyph = "\uE71C", FontSize = 12 },
+            Padding = new Thickness(5),
+            MinWidth = 0,
+            MinHeight = 0,
+            // Clear of the tick box, so their focus rings never touch.
+            Margin = new Thickness(10, 0, 0, 0),
+            Background = new SolidColorBrush(Colors.Transparent),
+            BorderThickness = new Thickness(0),
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        AutomationProperties.SetName(button, $"Options for {from} to {to}");
+        StyleOptionsButton(button, _engine.GetRouteOptions(from, to) ?? RouteOptions.Default);
+        button.Click += (_, _) =>
+        {
+            // Drawn inside the app window rather than as a separate popup window: Windows draws a
+            // popup window's shadow itself, and on some HDR screens that shadow shows up white.
+            var flyout = new Flyout
+            {
+                Content = OptionsPanel(from, to, button),
+                Placement = FlyoutPlacementMode.Bottom,
+                ShouldConstrainToRootBounds = true,
+            };
+            try
+            {
+                flyout.ShowAt(button);
+            }
+            catch (ArgumentException ex)
+            {
+                // Older Windows App SDK builds can refuse an in-window flyout; a popup still works.
+                Log.Info($"Options panel opened as a popup: {ex.Message}");
+                flyout = new Flyout { Content = OptionsPanel(from, to, button), Placement = FlyoutPlacementMode.Bottom };
+                flyout.ShowAt(button);
+            }
+        };
+        return button;
+    }
+
+    private void StyleOptionsButton(Button button, RouteOptions options)
+    {
+        button.Foreground = options.IsDefault ? (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"] : _litBrush;
+        button.Opacity = options.IsDefault ? 0.6 : 1.0;
+        ToolTipService.SetToolTip(button, options.IsDefault ? "Filters and channel" : options.Describe());
+    }
+
+    /// <summary>The panel that opens from the filter button: what to let through, and channels.</summary>
+    private StackPanel OptionsPanel(string from, string to, Button button)
+    {
+        var current = _engine.GetRouteOptions(from, to) ?? RouteOptions.Default;
+        var panel = new StackPanel { Spacing = 6, Width = 380 };
+        panel.Children.Add(new TextBlock
+        {
+            Text = $"{from} \u2192 {to}",
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 0, 0, 6),
+        });
+
+        panel.Children.Add(Caption("LET THROUGH"));
+        // Two columns, so the panel fits inside a small window.
+        var filterBoxes = new List<(MessageKind Kind, CheckBox Box)>();
+        var filterGrid = new Grid { ColumnSpacing = 8 };
+        filterGrid.ColumnDefinitions.Add(new ColumnDefinition());
+        filterGrid.ColumnDefinitions.Add(new ColumnDefinition());
+        var rows = (FilterChoices.Length + 1) / 2;
+        for (var r = 0; r < rows; r++) filterGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        for (var i = 0; i < FilterChoices.Length; i++)
+        {
+            var (kind, label, hint) = FilterChoices[i];
+            var box = new CheckBox { Content = label, IsChecked = (current.Block & kind) == 0, MinHeight = 28 };
+            if (hint is not null) ToolTipService.SetToolTip(box, hint);
+            Grid.SetRow(box, i % rows);
+            Grid.SetColumn(box, i / rows);
+            filterBoxes.Add((kind, box));
+            filterGrid.Children.Add(box);
+        }
+        panel.Children.Add(filterGrid);
+
+        var channelCaption = Caption("CHANNEL");
+        channelCaption.Margin = new Thickness(0, 8, 0, 0);
+        panel.Children.Add(channelCaption);
+        var fromCombo = ChannelCombo("Take from", "All channels", current.FromChannel);
+        var toCombo = ChannelCombo("Send on", "Same channel", current.ToChannel);
+        var channels = new Grid { ColumnSpacing = 8 };
+        channels.ColumnDefinitions.Add(new ColumnDefinition());
+        channels.ColumnDefinitions.Add(new ColumnDefinition());
+        Grid.SetColumn(toCombo, 1);
+        channels.Children.Add(fromCombo);
+        channels.Children.Add(toCombo);
+        panel.Children.Add(channels);
+
+        var reset = new HyperlinkButton { Content = "Reset: let everything through", Margin = new Thickness(-10, 4, 0, 0) };
+        panel.Children.Add(reset);
+
+        var loading = true;
+        void Save()
+        {
+            if (loading) return;
+            var block = MessageKind.None;
+            foreach (var (kind, box) in filterBoxes)
+            {
+                if (box.IsChecked != true) block |= kind;
+            }
+            var options = new RouteOptions
+            {
+                Block = block,
+                FromChannel = fromCombo.SelectedIndex > 0 ? fromCombo.SelectedIndex : null,
+                ToChannel = toCombo.SelectedIndex > 0 ? toCombo.SelectedIndex : null,
+            };
+            _engine.SetRouteOptions(from, to, options);
+            StyleOptionsButton(button, options);
+        }
+
+        foreach (var (_, box) in filterBoxes)
+        {
+            box.Checked += (_, _) => Save();
+            box.Unchecked += (_, _) => Save();
+        }
+        fromCombo.SelectionChanged += (_, _) => Save();
+        toCombo.SelectionChanged += (_, _) => Save();
+        reset.Click += (_, _) =>
+        {
+            loading = true;
+            foreach (var (_, box) in filterBoxes) box.IsChecked = true;
+            fromCombo.SelectedIndex = 0;
+            toCombo.SelectedIndex = 0;
+            loading = false;
+            Save();
+        };
+        loading = false;
+        return panel;
+    }
+
+    private static ComboBox ChannelCombo(string header, string anyText, int? selected)
+    {
+        var combo = new ComboBox { Header = header, HorizontalAlignment = HorizontalAlignment.Stretch };
+        combo.Items.Add(anyText);
+        for (var ch = 1; ch <= 16; ch++) combo.Items.Add($"Channel {ch}");
+        combo.SelectedIndex = selected ?? 0;
+        AutomationProperties.SetName(combo, header);
+        return combo;
     }
 
     private void OnRouteToggled(string from, string to, bool on)
@@ -399,7 +581,8 @@ public sealed partial class MainWindow : Window
         // Card margin 2x20, padding 2x16, border 2x1, plus room for a vertical scroll bar.
         var widthDip = Math.Max(MinWindowWidth, Matrix.DesiredSize.Width + 40 + 32 + 2 + 16);
         Root.Measure(new Size(widthDip, double.PositiveInfinity));
-        var heightDip = Root.DesiredSize.Height + 4;
+        // Tall enough for the route options panel, which opens inside the window.
+        var heightDip = Math.Max(MinWindowHeight, Root.DesiredSize.Height + 4);
 
         var display = DisplayArea.GetFromWindowId(AppWindow.Id, DisplayAreaFallback.Primary);
         if (AppWindow.Position.X <= -30000) display = DisplayArea.Primary;

@@ -1,6 +1,7 @@
 using MidiRouter.Routing;
 using Windows.Devices.Enumeration;
 using Windows.Devices.Midi;
+using System.Runtime.InteropServices.WindowsRuntime;
 using Windows.Storage.Streams;
 
 namespace MidiRouter.Midi;
@@ -25,10 +26,13 @@ public sealed class MidiEngine : IDisposable
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly Dictionary<string, MidiEndpoint> _inputs = new(StringComparer.Ordinal);
     private readonly Dictionary<string, MidiEndpoint> _outputs = new(StringComparer.Ordinal);
-    private readonly HashSet<Route> _routes = [];
+    private readonly Dictionary<Route, RouteOptions> _routes = [];
 
-    /// <summary>Input name to output endpoints. Replaced whole on change; read on the MIDI thread.</summary>
-    private volatile Dictionary<string, MidiEndpoint[]> _routeMap = new(StringComparer.Ordinal);
+    /// <summary>Input name to its outputs and their options. Replaced whole on change; read on the MIDI thread.</summary>
+    private volatile Dictionary<string, RouteTarget[]> _routeMap = new(StringComparer.Ordinal);
+
+    /// <summary>One output of an input's routes, with that route's options.</summary>
+    private sealed record RouteTarget(MidiEndpoint Endpoint, RouteOptions Options);
 
     private DeviceWatcher? _inWatcher;
     private DeviceWatcher? _outWatcher;
@@ -49,13 +53,13 @@ public sealed class MidiEngine : IDisposable
         get { lock (_routes) return _routes.Count; }
     }
 
-    public void Start(IEnumerable<Route> savedRoutes)
+    public void Start(IEnumerable<KeyValuePair<Route, RouteOptions>> savedRoutes)
     {
-        foreach (var route in savedRoutes)
+        foreach (var (route, options) in savedRoutes)
         {
             GetOrAdd(PortKind.Input, route.From);
             GetOrAdd(PortKind.Output, route.To);
-            _routes.Add(route);
+            _routes[route] = options;
         }
         RebuildRouteMap();
         Log.Info($"Started with {_routes.Count} saved route(s).");
@@ -71,19 +75,43 @@ public sealed class MidiEngine : IDisposable
 
     public bool IsRouted(string from, string to)
     {
-        lock (_routes) return _routes.Contains(new Route(from, to));
+        lock (_routes) return _routes.ContainsKey(new Route(from, to));
     }
 
     public void SetRoute(string from, string to, bool on)
     {
         var route = new Route(from, to);
         bool changed;
-        lock (_routes) changed = on ? _routes.Add(route) : _routes.Remove(route);
+        lock (_routes) changed = on ? _routes.TryAdd(route, RouteOptions.Default) : _routes.Remove(route);
         if (!changed) return;
 
         Log.Info($"Route {(on ? "on" : "off")}: {from} -> {to}");
+        RouteChanged();
+    }
+
+    /// <summary>The route's options, or null when there is no such route.</summary>
+    public RouteOptions? GetRouteOptions(string from, string to)
+    {
+        lock (_routes) return _routes.TryGetValue(new Route(from, to), out var options) ? options : null;
+    }
+
+    /// <summary>Changes the filters and channels of an existing route. Takes effect on the next message.</summary>
+    public void SetRouteOptions(string from, string to, RouteOptions options)
+    {
+        var route = new Route(from, to);
+        lock (_routes)
+        {
+            if (!_routes.TryGetValue(route, out var old) || old == options) return;
+            _routes[route] = options;
+        }
+        Log.Info($"Route options {from} -> {to}: {options.Describe()}");
+        RouteChanged();
+    }
+
+    private void RouteChanged()
+    {
         RebuildRouteMap();
-        List<Route> copy;
+        List<KeyValuePair<Route, RouteOptions>> copy;
         lock (_routes) copy = [.. _routes];
         RouteStore.Save(copy);
     }
@@ -91,7 +119,7 @@ public sealed class MidiEngine : IDisposable
     /// <summary>Sends all-notes-off and all-sound-off on every channel to every routed output. Clears stuck notes.</summary>
     public int Panic()
     {
-        var targets = _routeMap.Values.SelectMany(t => t).Distinct().ToList();
+        var targets = _routeMap.Values.SelectMany(t => t).Select(t => t.Endpoint).Distinct().ToList();
         foreach (var target in targets) SendAllNotesOff(target, allSoundOff: true);
         Log.Info($"Panic: all notes off sent to {targets.Count} output(s).");
         return targets.Count;
@@ -259,7 +287,7 @@ public sealed class MidiEngine : IDisposable
             // An input unplugged mid-note never sends its note-offs, so release them on its outputs.
             if (kind == PortKind.Input && _routeMap.TryGetValue(endpoint.Name, out var targets))
             {
-                foreach (var target in targets) SendAllNotesOff(target, allSoundOff: false);
+                foreach (var target in targets) SendAllNotesOff(target.Endpoint, allSoundOff: false);
             }
         }
         finally
@@ -350,15 +378,26 @@ public sealed class MidiEngine : IDisposable
         if (!_routeMap.TryGetValue(source.Name, out var targets)) return;
 
         IBuffer data = message.RawData;
-        foreach (var target in targets)
+        byte[]? bytes = null;
+        foreach (var (target, options) in targets)
         {
+            // Fast path: a route with default options forwards the buffer untouched.
+            var send = data;
+            if (!options.IsDefault)
+            {
+                bytes ??= data.ToArray();
+                var filtered = RouteFilter.Apply(options, bytes);
+                if (filtered is null) continue;
+                if (!ReferenceEquals(filtered, bytes)) send = filtered.AsBuffer();
+            }
+
             lock (target.SendLock)
             {
                 var port = target.OutPort;
                 if (port is null) continue;
                 try
                 {
-                    port.SendBuffer(data);
+                    port.SendBuffer(send);
                 }
                 catch (Exception ex)
                 {
@@ -387,13 +426,13 @@ public sealed class MidiEngine : IDisposable
 
     private void RebuildRouteMap()
     {
-        List<Route> routes;
+        List<KeyValuePair<Route, RouteOptions>> routes;
         lock (_routes) routes = [.. _routes];
-        var map = new Dictionary<string, MidiEndpoint[]>(StringComparer.Ordinal);
-        foreach (var group in routes.GroupBy(r => r.From))
+        var map = new Dictionary<string, RouteTarget[]>(StringComparer.Ordinal);
+        foreach (var group in routes.GroupBy(r => r.Key.From))
         {
             GetOrAdd(PortKind.Input, group.Key);
-            map[group.Key] = group.Select(r => GetOrAdd(PortKind.Output, r.To)).ToArray();
+            map[group.Key] = group.Select(r => new RouteTarget(GetOrAdd(PortKind.Output, r.Key.To), r.Value)).ToArray();
         }
         _routeMap = map;
     }

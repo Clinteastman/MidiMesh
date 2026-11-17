@@ -19,6 +19,14 @@ sleep.
   - A check every 3 seconds retries ports that failed to open and restarts the device watcher
     if Windows stops it.
   - **Reconnect** does the same full reopen by hand.
+- Each ticked box gets a small filter button. It opens that route's options:
+  - **Let through**: untick notes, CC (knobs), pitch bend, aftertouch, program change, clock and
+    start/stop, or SysEx to block them on that route only. For example, untick Notes to use a
+    controller for its knobs only, or untick SysEx and Clock to keep a busy device quiet.
+  - **Take from**: only pass one channel; other channels are dropped.
+  - **Send on**: move channel messages to another channel.
+
+  The button turns green when a route has options set; hover over it for a summary.
 - A light next to each device flashes when notes, CC, pitch bend and other channel messages pass.
   Clock, active sensing and SysEx are still routed but do not light the lamp, because some
   devices (the FM-1 included) send them all the time.
@@ -53,11 +61,20 @@ dotnet build src/MidiRouter
 The exe lands in `src/MidiRouter/bin/Debug/net10.0-windows10.0.22621.0/win-x64/MidiRouter.exe`.
 The Windows App SDK is bundled (self-contained), so nothing else needs installing.
 
+## Tests
+
+The routing logic (filters, channel changes, the routes file) has unit tests:
+
+```bash
+cd tests/MidiRouter.Tests
+dotnet test
+```
+
 ## Files
 
 | File | What it is |
 | --- | --- |
-| `%LOCALAPPDATA%\MidiRouter\routes.json` | Saved routes, by device name. Safe to edit while the app is closed. |
+| `%LOCALAPPDATA%\MidiRouter\routes.json` | Saved routes, by device name, with any options (`block`, `fromChannel`, `toChannel`). Safe to edit while the app is closed. |
 | `%LOCALAPPDATA%\MidiRouter\log.txt` | Plug, unplug, open and error events, plus a "Traffic" line every 3 s while notes flow. |
 
 Set `MIDIROUTER_DATA_DIR` to use another folder, for example to test without touching your routes.
@@ -77,8 +94,8 @@ Set `MIDIROUTER_DATA_DIR` to use another folder, for example to test without tou
 - `StartupRegistration.cs` is the "Start with Windows" value under
   `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`.
 
-Channel or CC remapping is not in v1. The place for it is the `Route` record (per-route options)
-and `MidiEngine.OnMessage` (transform the bytes before `SendBuffer`).
+- `Routing/RouteOptions.cs` and `Routing/RouteFilter.cs` hold a route's options and apply them to
+  each raw message. Routes with no options skip this and forward the buffer untouched.
 
 ## Notes
 

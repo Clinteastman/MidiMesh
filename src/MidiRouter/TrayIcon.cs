@@ -23,7 +23,7 @@ public sealed class TrayIcon : IDisposable
     private const uint NIIF_USER = 0x04, NIIF_LARGE_ICON = 0x20;
     private const uint NOTIFYICON_VERSION_4 = 4;
 
-    private const uint MF_STRING = 0x0000, MF_SEPARATOR = 0x0800, MF_DEFAULT = 0x1000;
+    private const uint MF_STRING = 0x0000, MF_SEPARATOR = 0x0800;
     private const uint TPM_RIGHTBUTTON = 0x0002, TPM_BOTTOMALIGN = 0x0020, TPM_RETURNCMD = 0x0100;
     private const uint IMAGE_ICON = 1, LR_LOADFROMFILE = 0x10;
     private const int SM_CXSMICON = 49, SM_CYSMICON = 50;
@@ -57,6 +57,7 @@ public sealed class TrayIcon : IDisposable
         RegisterClassExW(ref wc);
         // A plain hidden window, not message-only, so Explorer's TaskbarCreated broadcast reaches it.
         _hwnd = CreateWindowExW(0, _className, "MIDI Router tray", 0, 0, 0, 0, 0, 0, 0, wc.hInstance, 0);
+        DarkMenus.Apply(_hwnd);
         Add();
     }
 
@@ -156,6 +157,7 @@ public sealed class TrayIcon : IDisposable
 
     private void ShowMenu(int x, int y)
     {
+        DarkMenus.Apply(_hwnd);
         var menu = CreatePopupMenu();
         if (menu == 0) return;
         try
@@ -163,8 +165,9 @@ public sealed class TrayIcon : IDisposable
             for (var i = 0; i < _menu.Count; i++)
             {
                 if (_menu[i].Text.Length == 0) AppendMenuW(menu, MF_SEPARATOR, 0, null);
-                else AppendMenuW(menu, MF_STRING | (i == 0 ? MF_DEFAULT : 0), (nuint)(i + 1), _menu[i].Text);
+                else AppendMenuW(menu, MF_STRING, (nuint)(i + 1), _menu[i].Text);
             }
+            SetMenuDefaultItem(menu, 1, 0); // The first item, shown bold: what a left click does.
             // Without this the menu does not close when the user clicks somewhere else.
             SetForegroundWindow(_hwnd);
             var chosen = TrackPopupMenuEx(menu, TPM_RIGHTBUTTON | TPM_BOTTOMALIGN | TPM_RETURNCMD, x, y, _hwnd, 0);
@@ -174,6 +177,69 @@ public sealed class TrayIcon : IDisposable
         finally
         {
             DestroyMenu(menu);
+        }
+    }
+
+    /// <summary>
+    /// Win32 popup menus are drawn light unless the process asks for dark. This follows the Windows
+    /// "system" mode (the one the taskbar uses), so the menu matches the other tray menus.
+    /// Uses uxtheme functions exported by ordinal only (Windows 10 1903+); if missing, menus stay light.
+    /// </summary>
+    private static class DarkMenus
+    {
+        private const int OrdinalAllowDarkModeForWindow = 133;
+        private const int OrdinalSetPreferredAppMode = 135;
+        private const int DWMWA_USE_IMMERSIVE_DARK_MODE = 20;
+        private const int OrdinalFlushMenuThemes = 136;
+        private const int ForceDark = 2, ForceLight = 3;
+
+        private delegate int SetPreferredAppModeFn(int mode);
+        private delegate bool AllowDarkModeForWindowFn(nint hwnd, bool allow);
+        private delegate void FlushMenuThemesFn();
+
+        private static readonly SetPreferredAppModeFn? SetMode;
+        private static readonly FlushMenuThemesFn? Flush;
+        private static readonly AllowDarkModeForWindowFn? AllowForWindow;
+
+        static DarkMenus()
+        {
+            var uxtheme = LoadLibraryW("uxtheme.dll");
+            if (uxtheme == 0) return;
+            var set = GetProcAddress(uxtheme, OrdinalSetPreferredAppMode);
+            var flush = GetProcAddress(uxtheme, OrdinalFlushMenuThemes);
+            if (set == 0 || flush == 0) return;
+            var allow = GetProcAddress(uxtheme, OrdinalAllowDarkModeForWindow);
+            if (allow != 0) AllowForWindow = Marshal.GetDelegateForFunctionPointer<AllowDarkModeForWindowFn>(allow);
+            SetMode = Marshal.GetDelegateForFunctionPointer<SetPreferredAppModeFn>(set);
+            Flush = Marshal.GetDelegateForFunctionPointer<FlushMenuThemesFn>(flush);
+        }
+
+        /// <summary>
+        /// Checked on every open, so a switch of the Windows mode is picked up. The menu's border
+        /// and shadow follow its owner window, so that is marked dark too.
+        /// </summary>
+        public static void Apply(nint owner)
+        {
+            if (SetMode is null || Flush is null) return;
+            var dark = SystemIsDark();
+            SetMode(dark ? ForceDark : ForceLight);
+            AllowForWindow?.Invoke(owner, dark);
+            var value = dark ? 1 : 0;
+            DwmSetWindowAttribute(owner, DWMWA_USE_IMMERSIVE_DARK_MODE, ref value, sizeof(int));
+            Flush();
+        }
+
+        private static bool SystemIsDark()
+        {
+            try
+            {
+                using var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize");
+                return key?.GetValue("SystemUsesLightTheme") is int light && light == 0;
+            }
+            catch (Exception)
+            {
+                return true;
+            }
         }
     }
 
@@ -269,6 +335,18 @@ public sealed class TrayIcon : IDisposable
 
     [DllImport("user32.dll")]
     private static extern bool SetForegroundWindow(nint hwnd);
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
+    private static extern nint LoadLibraryW(string name);
+
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmSetWindowAttribute(nint hwnd, int attribute, ref int value, int size);
+
+    [DllImport("user32.dll")]
+    private static extern bool SetMenuDefaultItem(nint menu, uint item, uint byPosition);
+
+    [DllImport("kernel32.dll")]
+    private static extern nint GetProcAddress(nint module, nint ordinal);
 
     [DllImport("user32.dll")]
     private static extern bool PostMessageW(nint hwnd, uint msg, nint wParam, nint lParam);
