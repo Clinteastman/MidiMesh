@@ -18,14 +18,22 @@ sleep.
     open after sleep but pass nothing.
   - A check every 3 seconds retries ports that failed to open and restarts the device watcher
     if Windows stops it.
-  - **Reconnect all** does the same full reopen by hand.
+  - **Reconnect** does the same full reopen by hand.
 - A light next to each device flashes when notes, CC, pitch bend and other channel messages pass.
   Clock, active sensing and SysEx are still routed but do not light the lamp, because some
   devices (the FM-1 included) send them all the time.
+- **Panic** sends all-notes-off and all-sound-off on every channel to every routed output, to
+  clear stuck notes. The same happens by itself (all-notes-off only) on an input's outputs when
+  that input is unplugged, since it can no longer send its own note-offs.
+- Lives in the tray. Closing the window hides it and routing carries on. Click the tray icon to
+  open it again; right-click for Panic, Reconnect and Quit. **Quit** (tray menu or the `...`
+  menu) is the only thing that stops routing.
+- **Start with Windows** (in the `...` menu, off by default) starts it in the tray at sign-in.
+  It points at the exe you turned it on from, so turn it on again if you move the exe.
+- The window opens sized to fit the grid: small for two devices, bigger for many, never more than
+  90% of the screen (the grid scrolls past that). It stops resizing itself once you drag its edge.
 - Only one copy runs at a time. Starting it again brings the open window to the front, so notes
   are never sent twice.
-
-Closing the window stops the routing. Minimise it to keep routing.
 
 ## Build and run
 
@@ -63,7 +71,11 @@ Set `MIDIROUTER_DATA_DIR` to use another folder, for example to test without tou
   map that is swapped whole when routes change, so there is no UI or lock in the note path apart
   from a small per-output send lock.
 - `Routing/RouteStore.cs` loads and saves `routes.json`.
-- `MainWindow.xaml.cs` draws the grid and polls the activity lights 25 times a second.
+- `MainWindow.xaml.cs` draws the title bar and grid, sizes the window and polls the activity
+  lights 25 times a second.
+- `TrayIcon.cs` is the notification-area icon and menu (plain Win32 `Shell_NotifyIcon`).
+- `StartupRegistration.cs` is the "Start with Windows" value under
+  `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`.
 
 Channel or CC remapping is not in v1. The place for it is the `Route` record (per-route options)
 and `MidiEngine.OnMessage` (transform the bytes before `SendBuffer`).

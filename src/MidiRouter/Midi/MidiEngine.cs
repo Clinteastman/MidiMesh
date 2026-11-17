@@ -35,9 +35,19 @@ public sealed class MidiEngine : IDisposable
     private Timer? _healthTimer;
     private DateTime _lastHealthTick = DateTime.UtcNow;
     private bool _disposed;
+    private int _watchersScanned;
+    private readonly TaskCompletionSource _initialScan = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     /// <summary>Raised (on a background thread) when a device appears, goes or changes state.</summary>
     public event Action? EndpointsChanged;
+
+    /// <summary>Completes once both device lists have loaded and their ports have been tried, so the window can open at the right size.</summary>
+    public Task InitialScan => _initialScan.Task;
+
+    public int RouteCount
+    {
+        get { lock (_routes) return _routes.Count; }
+    }
 
     public void Start(IEnumerable<Route> savedRoutes)
     {
@@ -76,6 +86,37 @@ public sealed class MidiEngine : IDisposable
         List<Route> copy;
         lock (_routes) copy = [.. _routes];
         RouteStore.Save(copy);
+    }
+
+    /// <summary>Sends all-notes-off and all-sound-off on every channel to every routed output. Clears stuck notes.</summary>
+    public int Panic()
+    {
+        var targets = _routeMap.Values.SelectMany(t => t).Distinct().ToList();
+        foreach (var target in targets) SendAllNotesOff(target, allSoundOff: true);
+        Log.Info($"Panic: all notes off sent to {targets.Count} output(s).");
+        return targets.Count;
+    }
+
+    private static void SendAllNotesOff(MidiEndpoint target, bool allSoundOff)
+    {
+        lock (target.SendLock)
+        {
+            var port = target.OutPort;
+            if (port is null) return;
+            try
+            {
+                for (byte channel = 0; channel < 16; channel++)
+                {
+                    port.SendMessage(new MidiControlChangeMessage(channel, 64, 0));  // sustain pedal up
+                    port.SendMessage(new MidiControlChangeMessage(channel, 123, 0)); // all notes off
+                    if (allSoundOff) port.SendMessage(new MidiControlChangeMessage(channel, 120, 0));
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Info($"All notes off to {target} failed: {ex.Message}");
+            }
+        }
     }
 
     /// <summary>Closes every port and finds all devices again. Used after sleep and by the Reconnect button.</summary>
@@ -134,6 +175,7 @@ public sealed class MidiEngine : IDisposable
         watcher.EnumerationCompleted += (w, _) =>
         {
             if (IsCurrent(w)) Log.Info($"{kind} device list loaded.");
+            _ = MarkScannedAsync();
         };
         watcher.Stopped += (w, _) =>
         {
@@ -162,6 +204,14 @@ public sealed class MidiEngine : IDisposable
         }
         _inWatcher = null;
         _outWatcher = null;
+    }
+
+    /// <summary>Waits its turn behind the queued opens, so InitialScan completes after the ports were tried.</summary>
+    private async Task MarkScannedAsync()
+    {
+        await _gate.WaitAsync();
+        _gate.Release();
+        if (Interlocked.Increment(ref _watchersScanned) >= 2) _initialScan.TrySetResult();
     }
 
     /// <summary>Events from a watcher that has since been replaced are ignored.</summary>
@@ -205,6 +255,12 @@ public sealed class MidiEngine : IDisposable
             Log.Info($"Lost {endpoint} (unplugged or switched off).");
             ClosePort(endpoint);
             endpoint.DeviceId = null;
+
+            // An input unplugged mid-note never sends its note-offs, so release them on its outputs.
+            if (kind == PortKind.Input && _routeMap.TryGetValue(endpoint.Name, out var targets))
+            {
+                foreach (var target in targets) SendAllNotesOff(target, allSoundOff: false);
+            }
         }
         finally
         {
