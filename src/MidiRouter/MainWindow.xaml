@@ -56,7 +56,8 @@
             <Button Grid.Column="3" AutomationProperties.Name="More options" ToolTipService.ToolTip="More">
                 <FontIcon Glyph="&#xE712;" FontSize="14" />
                 <Button.Flyout>
-                    <MenuFlyout Placement="BottomEdgeAlignedRight" Opening="OnMoreOpening">
+                    <MenuFlyout Placement="BottomEdgeAlignedRight" Opening="OnMoreOpening"
+                                MenuFlyoutPresenterStyle="{StaticResource SolidMenuFlyoutStyle}">
                         <ToggleMenuFlyoutItem x:Name="StartupItem" Text="Start with Windows" Click="OnStartupClick" />
                         <MenuFlyoutItem Text="Open log folder" Click="OnOpenLogClick">
                             <MenuFlyoutItem.Icon>

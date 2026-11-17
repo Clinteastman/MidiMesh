@@ -333,6 +333,7 @@ public sealed partial class MainWindow : Window
                 Content = OptionsPanel(from, to, button),
                 Placement = FlyoutPlacementMode.Bottom,
                 ShouldConstrainToRootBounds = true,
+                FlyoutPresenterStyle = (Style)Application.Current.Resources["SolidFlyoutStyle"],
             };
             try
             {
@@ -381,7 +382,12 @@ public sealed partial class MainWindow : Window
         {
             var (kind, label, hint) = FilterChoices[i];
             var box = new CheckBox { Content = label, IsChecked = (current.Block & kind) == 0, MinHeight = 28 };
-            if (hint is not null) ToolTipService.SetToolTip(box, hint);
+            if (hint is not null)
+            {
+                ToolTipService.SetToolTip(box, hint);
+                // Below the box, so the tip never covers the panel's title.
+                ToolTipService.SetPlacement(box, PlacementMode.Bottom);
+            }
             Grid.SetRow(box, i % rows);
             Grid.SetColumn(box, i / rows);
             filterBoxes.Add((kind, box));

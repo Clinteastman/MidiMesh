@@ -8,6 +8,23 @@
             <ResourceDictionary.MergedDictionaries>
                 <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
             </ResourceDictionary.MergedDictionaries>
+
+            <!--
+                Popups and menus normally use see-through acrylic and a system-drawn shadow. On an
+                HDR screen both rendered badly (grid showing through, a second shadow offset to one
+                side), so popups here are solid with a plain border and no built-in shadow.
+            -->
+            <ResourceDictionary.ThemeDictionaries>
+                <ResourceDictionary x:Key="Dark">
+                    <SolidColorBrush x:Key="AcrylicInAppFillColorDefaultBrush" Color="#FF2B2E2C" />
+                    <SolidColorBrush x:Key="AcrylicBackgroundFillColorDefaultBrush" Color="#FF2B2E2C" />
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="Default">
+                    <SolidColorBrush x:Key="AcrylicInAppFillColorDefaultBrush" Color="#FF2B2E2C" />
+                    <SolidColorBrush x:Key="AcrylicBackgroundFillColorDefaultBrush" Color="#FF2B2E2C" />
+                </ResourceDictionary>
+            </ResourceDictionary.ThemeDictionaries>
+
             <!-- The same green as the icon and the activity lights. -->
             <Color x:Key="SystemAccentColor">#FF50DC6E</Color>
             <Color x:Key="SystemAccentColorLight1">#FF6FE587</Color>
@@ -19,6 +36,23 @@
             <SolidColorBrush x:Key="LightOnBrush" Color="#FF50DC6E" />
             <SolidColorBrush x:Key="LightIdleBrush" Color="#FF3A4F42" />
             <SolidColorBrush x:Key="WarningTextBrush" Color="#FFF2B84B" />
+
+            <SolidColorBrush x:Key="PopupBorderBrush" Color="#FF4A504C" />
+            <Style x:Key="SolidFlyoutStyle" TargetType="FlyoutPresenter">
+                <Setter Property="Background" Value="#FF2B2E2C" />
+                <Setter Property="BorderBrush" Value="{StaticResource PopupBorderBrush}" />
+                <Setter Property="BorderThickness" Value="1" />
+                <Setter Property="CornerRadius" Value="8" />
+                <Setter Property="Padding" Value="18,16" />
+                <Setter Property="MaxWidth" Value="480" />
+                <Setter Property="IsDefaultShadowEnabled" Value="False" />
+            </Style>
+            <Style x:Key="SolidMenuFlyoutStyle" TargetType="MenuFlyoutPresenter">
+                <Setter Property="Background" Value="#FF2B2E2C" />
+                <Setter Property="BorderBrush" Value="{StaticResource PopupBorderBrush}" />
+                <Setter Property="BorderThickness" Value="1" />
+                <Setter Property="IsDefaultShadowEnabled" Value="False" />
+            </Style>
         </ResourceDictionary>
     </Application.Resources>
 </Application>
