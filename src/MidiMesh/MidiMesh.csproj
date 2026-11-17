@@ -4,8 +4,15 @@
     <TargetFramework>net10.0-windows10.0.22621.0</TargetFramework>
     <TargetPlatformMinVersion>10.0.19041.0</TargetPlatformMinVersion>
     <SupportedOSPlatformVersion>10.0.19041.0</SupportedOSPlatformVersion>
-    <RootNamespace>MidiRouter</RootNamespace>
-    <AssemblyName>MidiRouter</AssemblyName>
+    <RootNamespace>MidiMesh</RootNamespace>
+    <AssemblyName>MidiMesh</AssemblyName>
+    <!-- The one place the version is set. The release build overrides it from the git tag (v1.2.3). -->
+    <Version>0.1.0</Version>
+    <Product>MidiMesh</Product>
+    <Description>Free MIDI router for Windows: route any MIDI input to any output, and it reconnects by itself.</Description>
+    <Authors>Clinteastman</Authors>
+    <!-- Home page, and the GitHub Releases feed the app checks for updates. -->
+    <RepositoryUrl>https://github.com/Clinteastman/midimesh</RepositoryUrl>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <Platforms>x64;ARM64</Platforms>
     <RuntimeIdentifiers>win-x64;win-arm64</RuntimeIdentifiers>
@@ -14,20 +21,27 @@
     <UseWinUI>true</UseWinUI>
     <WindowsPackageType>None</WindowsPackageType>
     <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <!-- Needed so "dotnet publish" includes MidiMesh.pri (the compiled XAML) in an unpackaged app. -->
+    <EnableMsixTooling>true</EnableMsixTooling>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <!-- Program.cs supplies Main so a second launch shows the running copy instead of routing twice. -->
     <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
   </PropertyGroup>
   <PropertyGroup>
-    <ApplicationIcon>Assets\MidiRouter.ico</ApplicationIcon>
+    <ApplicationIcon>Assets\MidiMesh.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.5.1" />
+    <!-- Installer, portable zip and updates. Keep in step with the vpk tool in dotnet-tools.json. -->
+    <PackageReference Include="Velopack" Version="1.2.161" />
+  </ItemGroup>
+  <ItemGroup>
+    <AssemblyMetadata Include="RepositoryUrl" Value="$(RepositoryUrl)" />
   </ItemGroup>
   <ItemGroup>
     <!-- Loaded at run time by the tray icon, the window icon and the title bar. -->
-    <Content Include="Assets\MidiRouter.ico" CopyToOutputDirectory="PreserveNewest" />
-    <Content Include="Assets\MidiRouter.png" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Assets\MidiMesh.ico" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Assets\MidiMesh.png" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

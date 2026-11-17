@@ -1,7 +1,7 @@
-using MidiRouter.Routing;
+using MidiMesh.Routing;
 using Xunit;
 
-namespace MidiRouter.Tests;
+namespace MidiMesh.Tests;
 
 public class RouteFilterTests
 {

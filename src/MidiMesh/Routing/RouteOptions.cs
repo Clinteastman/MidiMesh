@@ -1,4 +1,4 @@
-namespace MidiRouter.Routing;
+namespace MidiMesh.Routing;
 
 /// <summary>Kinds of MIDI message a route can block.</summary>
 [Flags]

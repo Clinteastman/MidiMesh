@@ -1,9 +1,9 @@
 using Microsoft.UI.Xaml;
 using Microsoft.Windows.System.Power;
-using MidiRouter.Midi;
-using MidiRouter.Routing;
+using MidiMesh.Midi;
+using MidiMesh.Routing;
 
-namespace MidiRouter;
+namespace MidiMesh;
 
 public partial class App : Application
 {
@@ -20,7 +20,7 @@ public partial class App : Application
         UnhandledException += (_, e) => Log.Info($"Unhandled: {e.Exception}");
     }
 
-    public static string IconPath => Path.Combine(AppContext.BaseDirectory, "Assets", "MidiRouter.ico");
+    public static string IconPath => Path.Combine(AppContext.BaseDirectory, "Assets", "MidiMesh.ico");
 
     /// <summary>True once Quit was chosen; until then closing the window only hides it.</summary>
     public static bool Quitting { get; private set; }
@@ -41,9 +41,9 @@ public partial class App : Application
             }
         };
 
-        _tray = new TrayIcon("MIDI Router", IconPath,
+        _tray = new TrayIcon(AppInfo.Name, IconPath,
         [
-            ("Open MIDI Router", ShowRunningWindow),
+            ($"Open {AppInfo.Name}", ShowRunningWindow),
             ("Panic (all notes off)", () => engine.Panic()),
             ("Reconnect all", () => _ = engine.ReconnectAllAsync("tray menu")),
             (null, null),
@@ -51,7 +51,9 @@ public partial class App : Application
         ]);
         _tray.Open += ShowRunningWindow;
 
+        Log.Info($"{AppInfo.Name} {AppInfo.Version} started.");
         engine.Start(RouteStore.Load());
+        StartUpdateChecks();
 
         // Started by Windows at sign-in: stay in the tray.
         if (Environment.GetCommandLineArgs().Contains(StartupRegistration.TrayArgument)) return;
@@ -70,8 +72,37 @@ public partial class App : Application
     {
         if (_current?._tray is not { } tray || _hintShown) return;
         _hintShown = true;
-        tray.ShowBalloon("MIDI Router is still routing", "It's in the tray. Right-click the icon to quit.");
+        tray.ShowBalloon($"{AppInfo.Name} is still routing", "It's in the tray. Right-click the icon to quit.");
     }
+
+    /// <summary>
+    /// Quiet update check a minute after start, then once a day, since the app can sit in the tray
+    /// for weeks. A found update downloads in the background and then waits for the user to restart.
+    /// </summary>
+    private void StartUpdateChecks()
+    {
+        if (!Updater.IsInstalled) return;
+        Updater.UpdateReady += version => _window?.DispatcherQueue.TryEnqueue(() =>
+        {
+            _window.ShowUpdateReady(version);
+            _tray?.ShowBalloon($"{AppInfo.Name} {version} is ready", $"Open {AppInfo.Name} and click Restart now when it suits you.");
+        });
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(StartupCheckDelay);
+            while (!Quitting && Updater.ReadyVersion is null)
+            {
+                await Updater.CheckAndDownloadAsync();
+                await Task.Delay(TimeSpan.FromHours(24));
+            }
+        });
+    }
+
+    /// <summary>A minute, so start-up and the device scan come first. MIDIMESH_UPDATE_DELAY (seconds) shortens it for tests.</summary>
+    private static TimeSpan StartupCheckDelay =>
+        int.TryParse(Environment.GetEnvironmentVariable("MIDIMESH_UPDATE_DELAY"), out var seconds)
+            ? TimeSpan.FromSeconds(seconds)
+            : TimeSpan.FromMinutes(1);
 
     public static void Quit()
     {

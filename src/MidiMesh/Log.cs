@@ -1,4 +1,4 @@
-namespace MidiRouter;
+namespace MidiMesh;
 
 /// <summary>Small file log. Plug and unplug events go here so a dropped device can be explained later.</summary>
 public static class Log

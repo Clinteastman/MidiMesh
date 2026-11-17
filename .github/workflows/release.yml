@@ -1,0 +1,82 @@
+name: Release
+
+# Push a tag like v0.1.0 to build, pack and publish a GitHub Release.
+# The release holds the installers and portable zips for x64 and Arm64, plus the update
+# feed files (releases.win-*.json and .nupkg) that installed copies read to update themselves.
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-latest
+    env:
+      REPO_URL: ${{ github.server_url }}/${{ github.repository }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      RELEASES_DIR: artifacts/releases
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Read version from tag
+        id: version
+        shell: pwsh
+        run: |
+          $version = "${{ github.ref_name }}".TrimStart('v')
+          if ($version -notmatch '^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$') {
+            throw "Tag ${{ github.ref_name }} is not like v1.2.3 or v1.2.3-beta.1."
+          }
+          "version=$version" >> $env:GITHUB_OUTPUT
+          # A version with a dash (1.2.3-beta.1) is published as a pre-release, which the app ignores.
+          "pre=$(if ($version.Contains('-')) { '--pre' } else { '' })" >> $env:GITHUB_OUTPUT
+
+      - name: Test
+        working-directory: tests/MidiMesh.Tests
+        run: dotnet test
+
+      - name: Restore vpk
+        run: dotnet tool restore
+
+      - name: Download previous release (for delta updates)
+        shell: pwsh
+        run: |
+          foreach ($channel in 'win-x64', 'win-arm64') {
+            dotnet vpk download github --repoUrl $env:REPO_URL --token $env:GH_TOKEN --channel $channel -o $env:RELEASES_DIR
+            if ($LASTEXITCODE) { throw "vpk download failed for $channel." }
+          }
+
+      - name: Build and pack
+        shell: pwsh
+        run: ./build/pack.ps1 -Version ${{ steps.version.outputs.version }} -OutputDir $env:RELEASES_DIR -RepositoryUrl $env:REPO_URL
+
+      - name: Publish GitHub Release
+        shell: pwsh
+        run: |
+          $version = '${{ steps.version.outputs.version }}'
+          $pre = '${{ steps.version.outputs.pre }}'
+          $common = @('--repoUrl', $env:REPO_URL, '--token', $env:GH_TOKEN, '-o', $env:RELEASES_DIR,
+                      '--tag', '${{ github.ref_name }}', '--releaseName', "MidiMesh $version", '--publish')
+          if ($pre) { $common += $pre }
+          dotnet vpk upload github @common --channel win-x64
+          if ($LASTEXITCODE) { throw 'Upload failed for win-x64.' }
+          dotnet vpk upload github @common --channel win-arm64 --merge
+          if ($LASTEXITCODE) { throw 'Upload failed for win-arm64.' }
+
+      - name: Keep the files on the run as well
+        uses: actions/upload-artifact@v4
+        with:
+          name: MidiMesh-${{ steps.version.outputs.version }}
+          path: |
+            artifacts/releases/*Setup.exe
+            artifacts/releases/*Portable.zip

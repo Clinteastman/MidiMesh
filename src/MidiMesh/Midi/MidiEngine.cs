@@ -1,10 +1,10 @@
-using MidiRouter.Routing;
+using MidiMesh.Routing;
 using Windows.Devices.Enumeration;
 using Windows.Devices.Midi;
 using System.Runtime.InteropServices.WindowsRuntime;
 using Windows.Storage.Streams;
 
-namespace MidiRouter.Midi;
+namespace MidiMesh.Midi;
 
 /// <summary>
 /// Watches MIDI devices, keeps their ports open and forwards messages along the routes.
