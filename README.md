@@ -169,4 +169,9 @@ Bug reports and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md
 
 ## Licence
 
-[0BSD](LICENSE) (BSD Zero Clause): use it for anything, no conditions. Bundled parts (Windows App SDK, Velopack, .NET) keep their own licences.
+Copyright (C) 2026 Clinteastman. MidiMesh is free software under the
+[GNU General Public License v3.0 or later](LICENSE) (GPL-3.0-or-later). You can use, share and
+change it; if you share a changed version, you must share its source under the same licence.
+
+[NOTICE.md](NOTICE.md) has the copyright notice, an extra permission that allows release builds
+to bundle the Windows App SDK and .NET runtime, and the licences of the bundled components.

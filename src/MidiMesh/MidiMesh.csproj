@@ -11,7 +11,7 @@
     <Product>MidiMesh</Product>
     <Description>Free MIDI router for Windows: route any MIDI input to any output, and it reconnects by itself.</Description>
     <Authors>Clinteastman</Authors>
-    <PackageLicenseExpression>0BSD</PackageLicenseExpression>
+    <PackageLicenseExpression>GPL-3.0-or-later</PackageLicenseExpression>
     <!-- Home page, and the GitHub Releases feed the app checks for updates. -->
     <RepositoryUrl>https://github.com/Clinteastman/midimesh</RepositoryUrl>
     <ApplicationManifest>app.manifest</ApplicationManifest>
@@ -44,5 +44,8 @@
     <!-- Loaded at run time by the tray icon, the window icon and the title bar. -->
     <Content Include="Assets\MidiMesh.ico" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="Assets\MidiMesh.png" CopyToOutputDirectory="PreserveNewest" />
+    <!-- Shipped next to the exe so every install and portable zip carries its licence. -->
+    <Content Include="..\..\LICENSE" Link="LICENSE.txt" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\NOTICE.md" Link="NOTICE.md" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

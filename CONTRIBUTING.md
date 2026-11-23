@@ -48,4 +48,4 @@ See "How it works" in the [README](README.md).
 ## Licence
 
 By contributing you agree that your contribution is licensed under the project's
-[0BSD licence](LICENSE).
+licence, the [GNU GPL v3.0 or later](LICENSE) with the extra permission in [NOTICE.md](NOTICE.md).
