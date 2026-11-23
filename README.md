@@ -169,4 +169,4 @@ Bug reports and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md
 
 ## Licence
 
-[MIT](LICENSE).
+[0BSD](LICENSE) (BSD Zero Clause): use it for anything, no conditions. Bundled parts (Windows App SDK, Velopack, .NET) keep their own licences.

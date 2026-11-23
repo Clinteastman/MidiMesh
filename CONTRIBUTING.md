@@ -48,4 +48,4 @@ See "How it works" in the [README](README.md).
 ## Licence
 
 By contributing you agree that your contribution is licensed under the project's
-[MIT licence](LICENSE).
+[0BSD licence](LICENSE).
