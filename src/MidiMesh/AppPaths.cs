@@ -22,6 +22,12 @@ public static class AppPaths
 
     public static string LogFile => Path.Combine(DataDir, "log.txt");
 
+    /// <summary>Appearance choices: backdrop, accent colour, theme.</summary>
+    public static string SettingsFile => Path.Combine(DataDir, "settings.json");
+
+    /// <summary>Copies of the icon recoloured to the chosen accent.</summary>
+    public static string IconCacheDir => Path.Combine(DataDir, "icons");
+
     /// <summary>Short id of the data folder, for the single-instance key and test-run names.</summary>
     public static string DataDirHash { get; } =
         // SHA-256, not string.GetHashCode, which changes every run.

@@ -72,6 +72,9 @@ The portable zip updates itself the same way.
   open it again; right-click for Panic, Reconnect and Quit. **Quit** (tray menu or the `...` menu)
   is the only thing that stops routing.
 - **Start with Windows** (in the `...` menu, off by default) starts it in the tray at sign-in.
+- **Appearance** (in the `...` menu) changes the look straight away: the window backdrop (Mica,
+  darker Mica, Acrylic or Solid), the accent colour (green, five other colours, or your Windows
+  accent) used for tick boxes, lights and the icon, and the theme (Dark, Light or Follow Windows).
 - The window opens sized to fit the grid, never more than 90% of the screen (the grid scrolls past
   that). It stops resizing itself once you drag its edge.
 - Only one copy runs at a time. Starting it again brings the open window to the front, so notes
@@ -83,6 +86,7 @@ The portable zip updates itself the same way.
 | File | What it is |
 | --- | --- |
 | `%APPDATA%\MidiMesh\routes.json` | Saved routes, by device name, with any options (`block`, `fromChannel`, `toChannel`). Safe to edit while the app is closed. |
+| `%APPDATA%\MidiMesh\settings.json` | Appearance choices (`backdrop`, `accent`, `theme`). Copies of the icon in other accent colours are kept in the `icons` folder beside it. |
 | `%APPDATA%\MidiMesh\log.txt` | Plug, unplug, open, update and error events, plus a "Traffic" line every 3 s while notes flow. `...` > **Open log folder** opens it. |
 
 Settings are kept apart from the app, so uninstalling or updating never removes your routes.
@@ -114,7 +118,8 @@ dotnet run --project src/MidiMesh
 The Windows App SDK is bundled (self-contained), so nothing else needs installing. A build lands in
 `src/MidiMesh/bin/Debug/net10.0-windows10.0.22621.0/win-x64/MidiMesh.exe`.
 
-Run the tests (routing filters, channel changes, the routes file, the move from the old name):
+Run the tests (routing filters, channel changes, the routes file, the move from the old name, the
+settings file and accent colours):
 
 ```bash
 cd tests/MidiMesh.Tests
@@ -156,6 +161,9 @@ from the tag.
 - `Routing/RouteStore.cs` loads and saves `routes.json`.
 - `MainWindow.xaml.cs` draws the title bar and grid, sizes the window and polls the activity
   lights 25 times a second.
+- `Appearance/` holds the appearance choices and `settings.json`, the accent colours, and the
+  recoloured icon. `MainWindow.Appearance.cs` is the Appearance menu and applies the backdrop and
+  theme.
 - `TrayIcon.cs` is the notification-area icon and menu (plain Win32 `Shell_NotifyIcon`).
 - `StartupRegistration.cs` is the "Start with Windows" value under
   `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`.

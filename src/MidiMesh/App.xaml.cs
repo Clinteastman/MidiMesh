@@ -1,5 +1,6 @@
 using Microsoft.UI.Xaml;
 using Microsoft.Windows.System.Power;
+using MidiMesh.Appearance;
 using MidiMesh.Midi;
 using MidiMesh.Routing;
 
@@ -17,6 +18,7 @@ public partial class App : Application
     {
         _current = this;
         InitializeComponent();
+        AppearanceManager.LoadAtStart(this);
         UnhandledException += (_, e) => Log.Info($"Unhandled: {e.Exception}");
     }
 
@@ -28,6 +30,7 @@ public partial class App : Application
     protected override async void OnLaunched(LaunchActivatedEventArgs args)
     {
         var engine = _engine = new MidiEngine();
+        AppearanceManager.ApplyAccentColours(); // Before the window, so its controls start in the right colour.
         _window = new MainWindow(engine);
 
         // Sleep can leave ports looking open but silent, so reopen everything on wake.
@@ -50,6 +53,7 @@ public partial class App : Application
             ("Quit", Quit),
         ]);
         _tray.Open += ShowRunningWindow;
+        AppearanceManager.Attach(_window, path => _tray?.SetIcon(path));
 
         Log.Info($"{AppInfo.Name} {AppInfo.Version} started.");
         engine.Start(RouteStore.Load());

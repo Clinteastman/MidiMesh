@@ -21,5 +21,7 @@
     <Compile Include="..\..\src\MidiMesh\AppInfo.cs" Link="Linked\AppInfo.cs" />
     <Compile Include="..\..\src\MidiMesh\Migration.cs" Link="Linked\Migration.cs" />
     <Compile Include="..\..\src\MidiMesh\StartupRegistration.cs" Link="Linked\StartupRegistration.cs" />
+    <Compile Include="..\..\src\MidiMesh\Appearance\AppSettings.cs" Link="Linked\AppSettings.cs" />
+    <Compile Include="..\..\src\MidiMesh\Appearance\AccentPalette.cs" Link="Linked\AccentPalette.cs" />
   </ItemGroup>
 </Project>

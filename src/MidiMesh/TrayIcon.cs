@@ -28,7 +28,7 @@ public sealed class TrayIcon : IDisposable
     private const uint IMAGE_ICON = 1, LR_LOADFROMFILE = 0x10;
     private const int SM_CXSMICON = 49, SM_CYSMICON = 50;
 
-    private readonly string _iconPath;
+    private string _iconPath;
     private readonly string _tooltip;
     private readonly List<(string Text, Action Run)> _menu;
     private readonly WndProc _wndProc; // Held so the GC never collects the callback.
@@ -76,6 +76,21 @@ public sealed class TrayIcon : IDisposable
         Shell_NotifyIconW(NIM_MODIFY, ref data);
     }
 
+    /// <summary>Swaps the icon, for example after the accent colour changes.</summary>
+    public void SetIcon(string iconPath)
+    {
+        if (iconPath == _iconPath) return;
+        _iconPath = iconPath;
+        var old = _icon;
+        _icon = LoadIcon();
+        if (_added)
+        {
+            var data = NewData(NIF_ICON);
+            Shell_NotifyIconW(NIM_MODIFY, ref data);
+        }
+        if (old != 0) DestroyIcon(old);
+    }
+
     public void Dispose()
     {
         Remove();
@@ -89,14 +104,16 @@ public sealed class TrayIcon : IDisposable
 
     private void Add()
     {
-        var size = GetSystemMetrics(SM_CXSMICON);
-        _icon = LoadImageW(0, _iconPath, IMAGE_ICON, size, GetSystemMetrics(SM_CYSMICON), LR_LOADFROMFILE);
+        _icon = LoadIcon();
         var data = NewData(NIF_MESSAGE | NIF_ICON | NIF_TIP | NIF_SHOWTIP);
         _added = Shell_NotifyIconW(NIM_ADD, ref data);
         if (!_added) return;
         data.uTimeoutOrVersion = NOTIFYICON_VERSION_4;
         Shell_NotifyIconW(NIM_SETVERSION, ref data);
     }
+
+    private nint LoadIcon() =>
+        LoadImageW(0, _iconPath, IMAGE_ICON, GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON), LR_LOADFROMFILE);
 
     private void Remove()
     {
