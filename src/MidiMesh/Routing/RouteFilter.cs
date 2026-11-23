@@ -1,8 +1,8 @@
-namespace MidiRouter.Routing;
+namespace MidiMesh.Routing;
 
 /// <summary>
 /// Applies a route's options to one raw MIDI message. Pure byte logic with no Windows types, so
-/// it is unit tested on its own (tests/MidiRouter.Tests).
+/// it is unit tested on its own (tests/MidiMesh.Tests).
 /// </summary>
 public static class RouteFilter
 {

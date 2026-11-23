@@ -1,0 +1,40 @@
+name: Bug report
+description: Something does not work as it should.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for reporting. The more exact the details, the faster it can be fixed.
+  - type: input
+    id: version
+    attributes:
+      label: MidiMesh version
+      description: Bottom of the `...` menu.
+      placeholder: "0.1.0"
+    validations:
+      required: true
+  - type: input
+    id: windows
+    attributes:
+      label: Windows version
+      description: Settings > System > About, for example "Windows 11 24H2".
+    validations:
+      required: true
+  - type: input
+    id: devices
+    attributes:
+      label: MIDI devices involved
+      description: By the names MidiMesh shows, for example "KeyStep 37 mk2 into M-VAVE FM-1".
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Log
+      description: The relevant lines from `log.txt` (`...` > Open log folder).
+      render: text

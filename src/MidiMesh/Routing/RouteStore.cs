@@ -1,7 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-namespace MidiRouter.Routing;
+namespace MidiMesh.Routing;
 
 /// <summary>
 /// One route from an input to an output, by device name. Names are kept rather than device ids

@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- Windows-only because StartupRegistration uses the registry. -->
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="xunit.v3" Version="4.0.2" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- The routing logic is plain C#, so it is compiled in here directly instead of
+         referencing the WinUI app project. -->
+    <Compile Include="..\..\src\MidiMesh\Routing\RouteOptions.cs" Link="Linked\RouteOptions.cs" />
+    <Compile Include="..\..\src\MidiMesh\Routing\RouteFilter.cs" Link="Linked\RouteFilter.cs" />
+    <Compile Include="..\..\src\MidiMesh\Routing\RouteStore.cs" Link="Linked\RouteStore.cs" />
+    <Compile Include="..\..\src\MidiMesh\AppPaths.cs" Link="Linked\AppPaths.cs" />
+    <Compile Include="..\..\src\MidiMesh\Log.cs" Link="Linked\Log.cs" />
+    <Compile Include="..\..\src\MidiMesh\AppInfo.cs" Link="Linked\AppInfo.cs" />
+    <Compile Include="..\..\src\MidiMesh\Migration.cs" Link="Linked\Migration.cs" />
+    <Compile Include="..\..\src\MidiMesh\StartupRegistration.cs" Link="Linked\StartupRegistration.cs" />
+  </ItemGroup>
+</Project>

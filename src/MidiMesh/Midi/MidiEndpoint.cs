@@ -1,6 +1,6 @@
 using Windows.Devices.Midi;
 
-namespace MidiRouter.Midi;
+namespace MidiMesh.Midi;
 
 public enum PortKind
 {

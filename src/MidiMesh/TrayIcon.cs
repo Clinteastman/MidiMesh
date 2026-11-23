@@ -1,6 +1,6 @@
 using System.Runtime.InteropServices;
 
-namespace MidiRouter;
+namespace MidiMesh;
 
 /// <summary>
 /// The icon in the notification area. Left click raises <see cref="Open"/>; right click shows the
@@ -33,7 +33,7 @@ public sealed class TrayIcon : IDisposable
     private readonly List<(string Text, Action Run)> _menu;
     private readonly WndProc _wndProc; // Held so the GC never collects the callback.
     private readonly uint _taskbarCreated;
-    private readonly string _className = "MidiRouter.Tray." + Environment.ProcessId;
+    private readonly string _className = "MidiMesh.Tray." + Environment.ProcessId;
     private nint _hwnd;
     private nint _icon;
     private bool _added;
@@ -56,7 +56,7 @@ public sealed class TrayIcon : IDisposable
         };
         RegisterClassExW(ref wc);
         // A plain hidden window, not message-only, so Explorer's TaskbarCreated broadcast reaches it.
-        _hwnd = CreateWindowExW(0, _className, "MIDI Router tray", 0, 0, 0, 0, 0, 0, 0, wc.hInstance, 0);
+        _hwnd = CreateWindowExW(0, _className, AppInfo.Name + " tray", 0, 0, 0, 0, 0, 0, 0, wc.hInstance, 0);
         DarkMenus.Apply(_hwnd);
         Add();
     }

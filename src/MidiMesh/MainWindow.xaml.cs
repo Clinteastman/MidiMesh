@@ -8,13 +8,13 @@ using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
 using Microsoft.UI.Xaml.Shapes;
 using Microsoft.UI.Xaml.Controls.Primitives;
-using MidiRouter.Midi;
-using MidiRouter.Routing;
+using MidiMesh.Midi;
+using MidiMesh.Routing;
 using Windows.Foundation;
 using Windows.Graphics;
 using Windows.UI;
 
-namespace MidiRouter;
+namespace MidiMesh;
 
 /// <summary>
 /// The routing grid: inputs as rows, outputs as columns, a tick box where they meet.
@@ -50,10 +50,13 @@ public sealed partial class MainWindow : Window
         InitializeComponent();
 
         // The app draws its own dark title bar; Windows keeps the caption buttons.
+        Title = AppInfo.Name;
+        TitleText.Text = AppInfo.Name;
+        VersionItem.Text = $"{AppInfo.Name} {AppInfo.Version}";
         ExtendsContentIntoTitleBar = true;
         SetTitleBar(AppTitleBar);
         AppWindow.SetIcon(App.IconPath);
-        TitleIcon.Source = new BitmapImage(new Uri(System.IO.Path.Combine(AppContext.BaseDirectory, "Assets", "MidiRouter.png")));
+        TitleIcon.Source = new BitmapImage(new Uri(System.IO.Path.Combine(AppContext.BaseDirectory, "Assets", "MidiMesh.png")));
         var bar = AppWindow.TitleBar;
         bar.ButtonBackgroundColor = Colors.Transparent;
         bar.ButtonInactiveBackgroundColor = Colors.Transparent;
@@ -167,6 +170,44 @@ public sealed partial class MainWindow : Window
         System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(AppPaths.DataDir) { UseShellExecute = true });
 
     private void OnQuitClick(object sender, RoutedEventArgs e) => App.Quit();
+
+    // ---- Updates ---------------------------------------------------------------------------
+
+    private async void OnCheckUpdatesClick(object sender, RoutedEventArgs e)
+    {
+        UpdateItem.IsEnabled = false;
+        ShowUpdateMessage("Checking for updates...", InfoBarSeverity.Informational, restart: false);
+        try
+        {
+            var message = await Updater.CheckAndDownloadAsync();
+            var ready = Updater.ReadyVersion is not null;
+            ShowUpdateMessage(message, ready ? InfoBarSeverity.Success : InfoBarSeverity.Informational, restart: ready);
+        }
+        finally
+        {
+            UpdateItem.IsEnabled = true;
+        }
+    }
+
+    /// <summary>An update has downloaded: offer the restart, without pushing it.</summary>
+    public void ShowUpdateReady(string version) => ShowUpdateMessage(
+        $"{AppInfo.Name} {version} is ready. Restart when it suits you; routing pauses for a few seconds.",
+        InfoBarSeverity.Success, restart: true);
+
+    private void ShowUpdateMessage(string message, InfoBarSeverity severity, bool restart)
+    {
+        UpdateBar.Message = message;
+        UpdateBar.Severity = severity;
+        RestartButton.Visibility = restart ? Visibility.Visible : Visibility.Collapsed;
+        UpdateBar.IsOpen = true;
+    }
+
+    private void OnRestartClick(object sender, RoutedEventArgs e)
+    {
+        if (Updater.PrepareRestart()) App.Quit();
+        else ShowUpdateMessage($"The update could not start. It will be applied the next time {AppInfo.Name} starts.",
+            InfoBarSeverity.Warning, restart: false);
+    }
 
     // ---- Grid ------------------------------------------------------------------------------
 
