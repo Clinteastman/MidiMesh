@@ -38,6 +38,9 @@ public sealed class MidiEndpoint
     /// <summary>Serialises sends when two inputs feed the same output at once.</summary>
     internal object SendLock { get; } = new();
 
+    /// <summary>Opens the port with a time limit and keeps a request Windows has not answered yet.</summary>
+    internal PortOpener Opener { get; } = new(PortOpener.DefaultTimeout);
+
     public bool IsOpen => InPort is not null || OutPort is not null;
 
     /// <summary>The device is plugged in (Windows lists it), whether or not the port opened yet.</summary>
