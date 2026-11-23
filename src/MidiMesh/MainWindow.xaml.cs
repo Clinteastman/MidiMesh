@@ -60,10 +60,8 @@ public sealed partial class MainWindow : Window
         var bar = AppWindow.TitleBar;
         bar.ButtonBackgroundColor = Colors.Transparent;
         bar.ButtonInactiveBackgroundColor = Colors.Transparent;
-        bar.ButtonForegroundColor = Colors.White;
-        bar.ButtonInactiveForegroundColor = Color.FromArgb(255, 140, 140, 140);
-        bar.ButtonHoverBackgroundColor = Color.FromArgb(30, 255, 255, 255);
-        bar.ButtonPressedBackgroundColor = Color.FromArgb(50, 255, 255, 255);
+        // Button colours follow the theme: see ApplyAppearance.
+        BuildAppearanceMenu();
 
         AppWindow.Closing += OnClosing;
         AppWindow.Changed += (_, args) =>
@@ -151,7 +149,11 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private void OnMoreOpening(object? sender, object e) => StartupItem.IsChecked = StartupRegistration.IsEnabled;
+    private void OnMoreOpening(object? sender, object e)
+    {
+        StartupItem.IsChecked = StartupRegistration.IsEnabled;
+        SyncAppearanceMenu();
+    }
 
     private void OnStartupClick(object sender, RoutedEventArgs e)
     {
@@ -393,8 +395,10 @@ public sealed partial class MainWindow : Window
 
     private void StyleOptionsButton(Button button, RouteOptions options)
     {
-        button.Foreground = options.IsDefault ? (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"] : _litBrush;
-        button.Opacity = options.IsDefault ? 0.6 : 1.0;
+        // Default: the button's own text colour, which follows the window's theme when it changes.
+        if (options.IsDefault) button.ClearValue(Control.ForegroundProperty);
+        else button.Foreground = _litBrush;
+        button.Opacity = options.IsDefault ? 0.5 : 1.0;
         ToolTipService.SetToolTip(button, options.IsDefault ? "Filters and channel" : options.Describe());
     }
 

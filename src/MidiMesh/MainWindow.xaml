@@ -59,6 +59,12 @@
                     <MenuFlyout Placement="BottomEdgeAlignedRight" Opening="OnMoreOpening"
                                 MenuFlyoutPresenterStyle="{StaticResource SolidMenuFlyoutStyle}">
                         <ToggleMenuFlyoutItem x:Name="StartupItem" Text="Start with Windows" Click="OnStartupClick" />
+                        <!-- Filled in by BuildAppearanceMenu: backdrop, accent colour, theme. -->
+                        <MenuFlyoutSubItem x:Name="AppearanceItem" Text="Appearance">
+                            <MenuFlyoutSubItem.Icon>
+                                <FontIcon Glyph="&#xE790;" />
+                            </MenuFlyoutSubItem.Icon>
+                        </MenuFlyoutSubItem>
                         <MenuFlyoutItem Text="Open log folder" Click="OnOpenLogClick">
                             <MenuFlyoutItem.Icon>
                                 <FontIcon Glyph="&#xE838;" />
