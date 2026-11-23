@@ -11,7 +11,7 @@ _Screenshot coming soon._
 
 ## Download and install
 
-Get the latest version from the [Releases page](https://github.com/Clinteastman/midimesh/releases/latest).
+Get the latest version from the [Releases page](https://github.com/Clinteastman/MidiMesh/releases/latest).
 
 | File | What it is |
 | --- | --- |
@@ -106,7 +106,7 @@ Needs Windows 10 (1904x) or later and the [.NET 10 SDK](https://dotnet.microsoft
 Built and tested on Windows 11.
 
 ```bash
-git clone https://github.com/Clinteastman/midimesh.git
+git clone https://github.com/Clinteastman/MidiMesh.git
 cd midimesh
 dotnet run --project src/MidiMesh
 ```
