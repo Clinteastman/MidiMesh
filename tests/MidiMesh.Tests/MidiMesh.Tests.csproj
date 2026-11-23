@@ -16,6 +16,7 @@
     <Compile Include="..\..\src\MidiMesh\Routing\RouteOptions.cs" Link="Linked\RouteOptions.cs" />
     <Compile Include="..\..\src\MidiMesh\Routing\RouteFilter.cs" Link="Linked\RouteFilter.cs" />
     <Compile Include="..\..\src\MidiMesh\Routing\RouteStore.cs" Link="Linked\RouteStore.cs" />
+    <Compile Include="..\..\src\MidiMesh\Midi\PortOpener.cs" Link="Linked\PortOpener.cs" />
     <Compile Include="..\..\src\MidiMesh\AppPaths.cs" Link="Linked\AppPaths.cs" />
     <Compile Include="..\..\src\MidiMesh\Log.cs" Link="Linked\Log.cs" />
     <Compile Include="..\..\src\MidiMesh\AppInfo.cs" Link="Linked\AppInfo.cs" />

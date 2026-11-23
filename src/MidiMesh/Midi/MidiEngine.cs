@@ -13,6 +13,8 @@ namespace MidiMesh.Midi;
 /// - A DeviceWatcher per direction reports plug and unplug. Unplug closes the port; plug opens it
 ///   again under the same name, so the routes (stored by name) carry straight on.
 /// - A health timer retries ports that failed to open and restarts a watcher that died.
+/// - Opening a port has a time limit (see PortOpener), so one device Windows does not answer for
+///   cannot hold up the others, Reconnect all or Quit.
 /// - After sleep, ports can look open but pass nothing, so on resume everything is closed and
 ///   reopened from scratch.
 /// </summary>
@@ -175,14 +177,16 @@ public sealed class MidiEngine : IDisposable
         _disposed = true;
         _healthTimer?.Dispose();
         StopWatchers();
-        _gate.Wait();
+        // An open in progress can hold the lock for up to the open time limit. Do not wait longer
+        // than that: quitting must never hang, and the ports close with the process anyway.
+        var locked = _gate.Wait(PortOpener.DefaultTimeout + TimeSpan.FromSeconds(1));
         try
         {
             foreach (var endpoint in AllEndpoints()) ClosePort(endpoint);
         }
         finally
         {
-            _gate.Release();
+            if (locked) _gate.Release();
         }
     }
 
@@ -320,26 +324,26 @@ public sealed class MidiEngine : IDisposable
         var id = endpoint.DeviceId;
         try
         {
-            if (endpoint.Kind == PortKind.Input)
+            var (outcome, port) = await endpoint.Opener.OpenAsync(id, deviceId => RequestPortAsync(endpoint.Kind, deviceId));
+            switch (outcome)
             {
-                var port = await MidiInPort.FromIdAsync(id);
-                if (port is null)
-                {
+                case OpenOutcome.StillWaiting:
+                    return;
+                case OpenOutcome.TimedOut:
+                    Log.Info($"{endpoint} did not open within {endpoint.Opener.Timeout.TotalSeconds:0}s; still waiting for Windows.");
+                    return;
+                case OpenOutcome.Failed:
                     Log.Info($"Could not open {endpoint} yet; will retry.");
                     return;
-                }
-                port.MessageReceived += (sender, args) => OnMessage(endpoint, sender, args.Message);
-                endpoint.InPort = port;
+            }
+            if (port is MidiInPort inPort)
+            {
+                inPort.MessageReceived += (sender, args) => OnMessage(endpoint, sender, args.Message);
+                endpoint.InPort = inPort;
             }
             else
             {
-                var port = await MidiOutPort.FromIdAsync(id);
-                if (port is null)
-                {
-                    Log.Info($"Could not open {endpoint} yet; will retry.");
-                    return;
-                }
-                endpoint.OutPort = port;
+                endpoint.OutPort = (IMidiOutPort)port!;
             }
             Log.Info($"Opened {endpoint}.");
         }
@@ -349,8 +353,12 @@ public sealed class MidiEngine : IDisposable
         }
     }
 
+    private static async Task<IDisposable?> RequestPortAsync(PortKind kind, string id) =>
+        kind == PortKind.Input ? await MidiInPort.FromIdAsync(id) : await MidiOutPort.FromIdAsync(id);
+
     private static void ClosePort(MidiEndpoint endpoint)
     {
+        endpoint.Opener.Discard();
         try
         {
             endpoint.InPort?.Dispose();
